@@ -1,7 +1,8 @@
 discord.py
-pymongo
+pymongo==3.10
 requests
 colorama
 urllib3
 python-dateutil
 dnspython
+asyncio

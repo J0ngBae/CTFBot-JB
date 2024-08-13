@@ -3,12 +3,15 @@ from discord.ext.commands import Bot
 from discord.ext import commands
 import os
 import sys
+import asyncio
 
 import help_info
 import config_vars
 
-client = discord.Client()
-bot = commands.Bot(command_prefix=">", allowed_mentions = discord.AllowedMentions(everyone = False, users=False, roles=False))
+intents = discord.Intents.none()
+intents.guilds = True
+client = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents, allowed_mentions = discord.AllowedMentions(everyone = False, users=False, roles=False))
 # The default help command is removed so a custom one can be added.
 bot.remove_command('help')
 
@@ -26,7 +29,7 @@ async def on_ready():
     print(f"discord.py {discord.__version__}\n")
     print("-------------------------------")
 
-    await bot.change_presence(activity=discord.Game(name=">help | >source"))
+    await bot.change_presence(activity=discord.Game(name="/help | /source"))
 
 @bot.command()
 async def help(ctx, page=None):
@@ -66,7 +69,7 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("Missing a required argument.  Do >help")
+        await ctx.send("Missing a required argument.  Do /help")
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("You do not have the appropriate permissions to run this command.")
     if isinstance(error, commands.BotMissingPermissions):
@@ -100,11 +103,14 @@ async def amicool(ctx):
         await ctx.send('lolno')
         await ctx.send('Psst, kid.  Want to be cool?  Find an issue and report it or request a feature!')
 
-if __name__ == '__main__':
+async def main():
     sys.path.insert(1, os.getcwd() + '/cogs/')
     for extension in extensions:
         try:
-            bot.load_extension(extension)
+            await bot.load_extension(extension)
         except Exception as e:
             print(f'Failed to load cogs : {e}')
-    bot.run(config_vars.discord_token)
+    await bot.start(config_vars.discord_token)
+
+if __name__ == '__main__':
+    asyncio.run(main())

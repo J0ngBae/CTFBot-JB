@@ -10,6 +10,21 @@ sys.path.append("..")
 from config_vars import *
 
 # All commands for getting data from ctftime.org (a popular platform for finding CTF events)
+KST = timezone(timedelta(hours=9))
+
+def ctfPrint(organizers: str, ctf_format: str, weight: float, link: str) -> str:
+    __organizers = "👥 **Organizers** : "
+    __organizers += f"{organizers}\n\n"
+    __format = f"🚩 **CTF Format** : "
+    __format += f"{ctf_format}\n\n"
+    __weight = "🎯 **Weight** : "
+    __weight += f"{weight}\n\n"
+    __description = "📋 **Description** : "
+    __description += 'Visit CTF Time ➡️ ' + link
+
+    des = __organizers + __format + __weight + __description
+
+    return des
 
 class CtfTime(commands.Cog):
 
@@ -50,6 +65,9 @@ class CtfTime(commands.Cog):
             ctf_image = jdata[num]['logo']
             ctf_format = jdata[num]['format']
             ctf_place = jdata[num]['onsite']
+            ctf_organizers = jdata[num]['organizers'][0]['name']
+            ctf_weight = jdata[num]['weight']
+            ctftime_link = jdata[num]['ctftime_url']
             if ctf_place == False:
               ctf_place = 'Online'
             else:
@@ -62,7 +80,10 @@ class CtfTime(commands.Cog):
                 'dur': ctf_days+' days, '+ctf_hours+' hours',
                 'url': ctf_link,
                 'img': ctf_image,
-                'format': ctf_place+' '+ctf_format
+                'format': ctf_place+ ' / ' +ctf_format,
+                'organizers': ctf_organizers,
+                'weight': ctf_weight,
+                'ctftime': ctftime_link
                  }
             info.append(ctf)
         
@@ -83,6 +104,44 @@ class CtfTime(commands.Cog):
     async def before_updateDB(self):
         await self.bot.wait_until_ready()
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        try:
+            await self.bot.wait_until_ready()
+            self.makeEvent.start()
+        except Exception as e:
+            print('on_ready: ', e)
+    
+    @tasks.loop(time=datetime.time(hour=9, minute=0, second=0, tzinfo=KST))
+    async def makeEvent(self):
+        # Make Event Upcoming CTF
+        for guild in self.bot.guilds:
+            try:
+                events = guild.scheduled_events
+
+                for ctf in ctfs.find():
+                    if ctf['name'] not in events:
+                        name = ctf['name']
+                        start_time = datetime.fromtimestamp(ctf['start'], KST)
+                        end_time = datetime.fromtimestamp(ctf['end'], KST)
+                        location = ctf['url']
+                        ctf_format = ctf['format']
+                        organizers = ctf['organizers']
+                        weight = ctf['weight']
+                        ctftime_link = ctf['ctftime']
+
+                        description = ctfPrint(organizers, ctf_format, weight, ctftime_link)
+
+                        external = discord.EntityType.external
+                        privacy = discord.PrivacyLevel.guild_only
+
+                        await guild.create_scheduled_event(name=name, description=description,
+                                                        start_time=start_time, end_time=end_time,
+                                                        entity_type=external, privacy_level=privacy,
+                                                        location=location)
+
+            except Exception as e:
+                print('scheduled: ', e)
 
     @commands.group()
     async def ctftime(self, ctx):
@@ -91,6 +150,7 @@ class CtfTime(commands.Cog):
             # If the subcommand passed does not exist, its type is None
             ctftime_commands = list(set([c.qualified_name for c in CtfTime.walk_commands(self)][1:]))
             await ctx.send(f"Current ctftime commands are: {', '.join(ctftime_commands)}")
+
 
     @ctftime.command(aliases=['now', 'running'])
     async def current(self, ctx):
@@ -270,5 +330,5 @@ class CtfTime(commands.Cog):
                 
                 await ctx.send(f"```ini\n{self.upcoming_l[x]['name']} starts in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{self.upcoming_l[x]['url']}")
 
-def setup(bot):
-    bot.add_cog(CtfTime(bot))
+async def setup(bot):
+    await bot.add_cog(CtfTime(bot))
