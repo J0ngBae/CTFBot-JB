@@ -1,5 +1,7 @@
 import re
 import discord
+from discord import slash_command
+from discord.commands import SlashCommandGroup
 from discord.ext import tasks, commands
 from datetime import *
 from dateutil.parser import parse # pip install python-dateutil
@@ -39,7 +41,7 @@ class CtfTime(commands.Cog):
     def cog_unload(self):
         self.updateDB.cancel() # pylint: disable=no-member
 
-    @tasks.loop(minutes=30.0, reconnect=True)
+    @tasks.loop(time=time(hour=12, minute=45, second=0, tzinfo=KST), reconnect=True)
     async def updateDB(self):
         # Every 30 minutes, this will grab the 5 closest upcoming CTFs from ctftime.org and update my db with it.
         # I do this because there is no way to get current ctfs from the api, but by logging all upcoming ctfs [cont.]
@@ -103,7 +105,8 @@ class CtfTime(commands.Cog):
     @updateDB.before_loop
     async def before_updateDB(self):
         await self.bot.wait_until_ready()
-
+    
+    
     @commands.Cog.listener()
     async def on_ready(self):
         try:
@@ -112,7 +115,7 @@ class CtfTime(commands.Cog):
         except Exception as e:
             print('on_ready: ', e)
     
-    @tasks.loop(time=datetime.time(hour=9, minute=0, second=0, tzinfo=KST))
+    @tasks.loop(time=time(hour=12, minute=46, second=0, tzinfo=KST))
     async def makeEvent(self):
         # Make Event Upcoming CTF
         for guild in self.bot.guilds:
@@ -132,27 +135,18 @@ class CtfTime(commands.Cog):
 
                         description = ctfPrint(organizers, ctf_format, weight, ctftime_link)
 
-                        external = discord.EntityType.external
-                        privacy = discord.PrivacyLevel.guild_only
+                        privacy = discord.ScheduledEventPrivacyLevel.guild_only
 
                         await guild.create_scheduled_event(name=name, description=description,
                                                         start_time=start_time, end_time=end_time,
-                                                        entity_type=external, privacy_level=privacy,
-                                                        location=location)
+                                                        privacy_level=privacy, location=location)
 
             except Exception as e:
                 print('scheduled: ', e)
+    
+    ctftime = SlashCommandGroup("ctftime", description="ctftime command", guild_ids=[guild_id,])
 
-    @commands.group()
-    async def ctftime(self, ctx):
-
-        if ctx.invoked_subcommand is None:
-            # If the subcommand passed does not exist, its type is None
-            ctftime_commands = list(set([c.qualified_name for c in CtfTime.walk_commands(self)][1:]))
-            await ctx.send(f"Current ctftime commands are: {', '.join(ctftime_commands)}")
-
-
-    @ctftime.command(aliases=['now', 'running'])
+    @ctftime.command()
     async def current(self, ctx):
         # Send discord embeds of the currently running ctfs.
         now = datetime.utcnow()
@@ -177,9 +171,9 @@ class CtfTime(commands.Cog):
                 await ctx.channel.send(embed=embed)
         
         if running == False: # No ctfs were found to be running
-            await ctx.send("No CTFs currently running! Check out >ctftime countdown, and >ctftime upcoming to see when ctfs will start!")
+            await ctx.respond("No CTFs currently running! Check out /ctftime countdown, and /ctftime upcoming to see when ctfs will start!")
 
-    @ctftime.command(aliases=["next"])
+    @ctftime.command()
     async def upcoming(self, ctx, amount=None):
         # Send embeds of upcoming ctfs from ctftime.org, using their api.
         if not amount:
@@ -221,7 +215,7 @@ class CtfTime(commands.Cog):
             embed.add_field(name="Timeframe", value=(ctf_start + " -> ") + ctf_end, inline=True)
             await ctx.channel.send(embed=embed)
     
-    @ctftime.command(aliases=["leaderboard"])
+    @ctftime.command()
     async def top(self, ctx, year = None):
         # Send a message of the ctftime.org leaderboards from a supplied year (defaults to current year).
         
@@ -254,11 +248,11 @@ class CtfTime(commands.Cog):
 
                 await ctx.send(f":triangular_flag_on_post:  **{year} CTFtime Leaderboards**```ini\n{leaderboards}```")
             except KeyError as e:
-                await ctx.send("Please supply a valid year.")
+                await ctx.respond("Please supply a valid year.")
                 # LOG THIS
     @ctftime.command()
     async def timeleft(self, ctx):
-        # Send the specific time that ctfs that are currently running have left.
+        # 현재 진행 중인 ctf의 남은 시간을 출력
         now = datetime.utcnow()
         unix_now = int(now.replace(tzinfo=timezone.utc).timestamp())
         running = False
@@ -276,7 +270,7 @@ class CtfTime(commands.Cog):
                 await ctx.send(f"```ini\n{ctf['name']} ends in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{ctf['url']}")
         
         if running == False:
-            await ctx.send('No ctfs are running! Use >ctftime upcoming or >ctftime countdown to see upcoming ctfs')
+            await ctx.respond('No ctfs are running! Use /ctftime upcoming or /ctftime countdown to see upcoming ctfs')
 
     @ctftime.command()
     async def countdown(self, ctx, params=None):
@@ -294,7 +288,7 @@ class CtfTime(commands.Cog):
             for i, c in enumerate(self.upcoming_l):
                 index += f"\n[{i + 1}] {c['name']}\n"
             
-            await ctx.send(f"Type >ctftime countdown <number> to select.\n```ini\n{index}```")
+            await ctx.respond(f"Type /ctftime countdown <number> to select.\n```ini\n{index}```")
         else:
             if self.upcoming_l != []:
                 x = int(params) - 1     
@@ -310,7 +304,7 @@ class CtfTime(commands.Cog):
                 time %= 60
                 seconds = time
                 
-                await ctx.send(f"```ini\n{self.upcoming_l[x]['name']} starts in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{self.upcoming_l[x]['url']}")
+                await ctx.respond(f"```ini\n{self.upcoming_l[x]['name']} starts in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{self.upcoming_l[x]['url']}")
             else: # TODO: make this a function, too much repeated code here.
                 for ctf in ctfs.find():
                     if ctf['start'] > unix_now:
@@ -328,7 +322,7 @@ class CtfTime(commands.Cog):
                 time %= 60
                 seconds = time
                 
-                await ctx.send(f"```ini\n{self.upcoming_l[x]['name']} starts in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{self.upcoming_l[x]['url']}")
+                await ctx.respond(f"```ini\n{self.upcoming_l[x]['name']} starts in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{self.upcoming_l[x]['url']}")
 
-async def setup(bot):
-    await bot.add_cog(CtfTime(bot))
+def setup(bot):
+    bot.add_cog(CtfTime(bot))

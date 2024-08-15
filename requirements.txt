@@ -1,4 +1,4 @@
-discord.py
+py-cord
 pymongo==3.10
 requests
 colorama
