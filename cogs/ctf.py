@@ -435,7 +435,7 @@ class CTF(commands.Cog):
                 if ctf_platform == platform[0]:
                     message += f":triangular_flag_on_post: CTF Link: {link}\n\n"
                     message += f":unlock: Account info to Login\n\n"
-                    message += f"```ruby\n"
+                    message += f"```ini\n"
                     message += f"Username: {username}\n"
                     message += f"Password: {password}\n"
                     message += f"```\n"

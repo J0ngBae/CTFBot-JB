@@ -146,13 +146,14 @@ class CtfTime(commands.Cog):
     
     ctftime = SlashCommandGroup("ctftime", description="ctftime command", guild_ids=[guild_id,])
 
-    @ctftime.command()
+    @ctftime.command(description="Show now running CTF")
     async def current(self, ctx):
         # Send discord embeds of the currently running ctfs.
         now = datetime.utcnow()
         unix_now = int(now.replace(tzinfo=timezone.utc).timestamp())
         running = False
         
+        await ctx.respond(":recycle: Checking Running CTF...")
         for ctf in ctfs.find():
             if ctf['start'] < unix_now and ctf['end'] > unix_now: # Check if the ctf is running
                 running = True
@@ -168,16 +169,17 @@ class CtfTime(commands.Cog):
                 embed.add_field(name='Duration', value=ctf['dur'], inline=True)
                 embed.add_field(name='Format', value=ctf['format'], inline=True)
                 embed.add_field(name='Timeframe', value=start+' -> '+end, inline=True)
-                await ctx.channel.send(embed=embed)
+                await ctx.respond(embed=embed)
         
         if running == False: # No ctfs were found to be running
-            await ctx.respond("No CTFs currently running! Check out /ctftime countdown, and /ctftime upcoming to see when ctfs will start!")
+            await ctx.respond("No CTFs currently running!\nCheck out `/ctftime countdown`, and `/ctftime upcoming` to see when ctfs will start!")
 
-    @ctftime.command()
-    async def upcoming(self, ctx, amount=None):
+    @ctftime.command(description="Show you up to 1 ~ 5 upcoming CTF, Default is 3")
+    async def upcoming(self, ctx, amount=discord.Option(str, description="amount to show upcoming CTF", required=False)):
         # Send embeds of upcoming ctfs from ctftime.org, using their api.
         if not amount:
             amount = '3'
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:61.0) Gecko/20100101 Firefox/61.0',
         }
@@ -213,10 +215,11 @@ class CtfTime(commands.Cog):
             embed.add_field(name="Duration", value=((ctf_days + " days, ") + ctf_hours) + " hours", inline=True)
             embed.add_field(name="Format", value=(ctf_place + " ") + ctf_format, inline=True)
             embed.add_field(name="Timeframe", value=(ctf_start + " -> ") + ctf_end, inline=True)
-            await ctx.channel.send(embed=embed)
+            await ctx.respond(embed=embed)
+
     
-    @ctftime.command()
-    async def top(self, ctx, year = None):
+    @ctftime.command(description="Show Leaderboard by year")
+    async def top(self, ctx, year=discord.Option(str, description="year", required=False)):
         # Send a message of the ctftime.org leaderboards from a supplied year (defaults to current year).
         
         if not year:
@@ -250,7 +253,7 @@ class CtfTime(commands.Cog):
             except KeyError as e:
                 await ctx.respond("Please supply a valid year.")
                 # LOG THIS
-    @ctftime.command()
+    @ctftime.command(description="Show left time of now running ctf")
     async def timeleft(self, ctx):
         # 현재 진행 중인 ctf의 남은 시간을 출력
         now = datetime.utcnow()
@@ -270,10 +273,10 @@ class CtfTime(commands.Cog):
                 await ctx.send(f"```ini\n{ctf['name']} ends in: [{days} days], [{hours} hours], [{minutes} minutes], [{seconds} seconds]```\n{ctf['url']}")
         
         if running == False:
-            await ctx.respond('No ctfs are running! Use /ctftime upcoming or /ctftime countdown to see upcoming ctfs')
+            await ctx.respond('No ctfs are running!\nUse `/ctftime upcoming` or `/ctftime countdown` to see upcoming ctfs')
 
-    @ctftime.command()
-    async def countdown(self, ctx, params=None):
+    @ctftime.command(description="Show time before start CTF")
+    async def countdown(self, ctx, params=discord.Option(str, description="Index of upcoming CTF", required=False)):
         # Send the specific time that upcoming ctfs have until they start.
         now = datetime.utcnow()
         unix_now = int(now.replace(tzinfo=timezone.utc).timestamp())
