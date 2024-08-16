@@ -11,9 +11,9 @@ async def on_ready():
     print(f"discord.py {discord.__version__}\n")
     print("-------------------------------")
 
-    await bot.change_presence(activity=discord.Game(name=">help | >source"))
+    await bot.change_presence(activity=discord.Game(name="/help"))
 
-extensions = ['ping', 'ctftime', 'ctf']
+extensions = ['ping', 'ctftime', 'ctf', 'help',]
 
 if __name__ == '__main__':
     sys.path.insert(1, os.getcwd() + '/cogs/')

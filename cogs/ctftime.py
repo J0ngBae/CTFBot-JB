@@ -41,7 +41,7 @@ class CtfTime(commands.Cog):
     def cog_unload(self):
         self.updateDB.cancel() # pylint: disable=no-member
 
-    @tasks.loop(time=time(hour=5, minute=0, second=0, tzinfo=KST), reconnect=True)
+    @tasks.loop(minutes=30, reconnect=True)
     async def updateDB(self):
         # Every 30 minutes, this will grab the 5 closest upcoming CTFs from ctftime.org and update my db with it.
         # I do this because there is no way to get current ctfs from the api, but by logging all upcoming ctfs [cont.]
