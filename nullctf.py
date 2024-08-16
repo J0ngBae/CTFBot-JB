@@ -1,5 +1,6 @@
 import discord
 import config_vars
+import os, sys
 
 intents = discord.Intents.all()
 bot = discord.Bot(intents=intents,)
@@ -12,10 +13,14 @@ async def on_ready():
 
     await bot.change_presence(activity=discord.Game(name=">help | >source"))
 
-extensions = ['cogs.ping', 'cogs.ctftime', 'cogs.ctf']
+extensions = ['ping', 'ctftime', 'ctf']
 
 if __name__ == '__main__':
+    sys.path.insert(1, os.getcwd() + '/cogs/')
     for extension in extensions:
-        bot.load_extension(extension)
+        try:
+            bot.load_extension(extension)
+        except Exception as e:
+            print(f'Failed to load cogs : {e}')
 
-bot.run(config_vars.discord_token)
+    bot.run(config_vars.discord_token)
