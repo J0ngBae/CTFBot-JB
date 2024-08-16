@@ -92,6 +92,16 @@ def getChallenges(url, username, password):
         # Returns all the new challenges and their corresponding statuses in a dictionary compatible with the structure that would happen with 'normal' useage.
         return challenges
 
+def get_ctf_platform(url: str) -> str:
+    fingerprint = ["Powered by CTFd", '<meta name="rctf-config"']
+    platform = ""
+    res = requests.get(url)
+    if fingerprint[0] in res.text:
+        platform = "CTFd"
+    else:
+        platform = "rCTF"
+    
+    return platform
 
 
 class CTF(commands.Cog):
@@ -121,8 +131,21 @@ class CTF(commands.Cog):
     
     def get_joined_ctf(ctx: discord.AutocompleteContext):
         ctf_name = ctx.options['ctf_name']
-        print(ctx.interaction.channel.category.name)
+
         return [ctx.interaction.channel.category.name]
+
+    def get_credential_type(ctx: discord.AutocompleteContext):
+        ctf_platform = ctx.options['ctf_platform']
+        ctf_name = ctx.interaction.channel.category.name
+        url = ""
+        for ctf in ctfs.find():
+            if ctf_name == ctf["name"]:
+                url = ctf["url"]
+                break
+        
+        platform = get_ctf_platform(url)
+
+        return [platform]
 
 
     #### /ctf create ctf_name : Create CTF Category & Channels ####
@@ -134,10 +157,10 @@ class CTF(commands.Cog):
 
         general_channel = "general"
         botcmd_channel = "👻-botcmd"
+        account_channel = "🔑-account"
         notice_channel = "📢-notice"
         solved_channel = "🎉-solved"
         scoreboard_channel = "📈-scoreboard"
-        test_channel = "test"
 
         category = discord.utils.get(ctx.guild.categories, name=ctf_name)
         if category == None: # Checks if category exists, if it doesn't it will create it.
@@ -163,10 +186,10 @@ class CTF(commands.Cog):
         
             await ctx.guild.create_text_channel(name=general_channel, overwrites=overwrites, category=category)
             await ctx.guild.create_text_channel(name=botcmd_channel, overwrites=overwrites, category=category)
+            await ctx.guild.create_text_channel(name=account_channel, overwrites=rdonly_overwrite, category=category)
             await ctx.guild.create_text_channel(name=notice_channel, overwrites=rdonly_overwrite, category=category)
             await ctx.guild.create_text_channel(name=solved_channel, overwrites=rdonly_overwrite, category=category)
             await ctx.guild.create_text_channel(name=scoreboard_channel, overwrites=rdonly_overwrite, category=category)
-            await ctx.guild.create_text_channel(name=test_channel, overwrites=overwrites, category=category)
 
             server = teamdb[str(ctx.guild.id)]
 
@@ -205,15 +228,14 @@ class CTF(commands.Cog):
 
     #### Delete CTF Info from DB & Disord Category & Channels End ####
     
-    
-    @ctf.command()
-    async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
-        #user = ctx.guild.members
-        category = discord.utils.get(ctx.guild.categories, name=ctf_name)
+    # @ctf.command()
+    # async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
+    #     #user = ctx.guild.members
+    #     category = discord.utils.get(ctx.guild.categories, name=ctf_name)
 
-        print(category.channels)
+    #     print(category.channels)
 
-        await ctx.respond("✅ Work")
+    #     await ctx.respond("✅ Work")
     
     #### /ctf archive ctf_name Archiving CTF Info ####
     @commands.bot_has_permissions(manage_channels=True, manage_roles=True)
@@ -249,10 +271,12 @@ class CTF(commands.Cog):
 
             # Edit RDONLY channel without general channel
             for channel in category.channels[1:]:
-                await channel.edit(sync_permissions=True, category=category)
+                name = "🔒-" + channel.name[1:]
+                await channel.edit(name=name, sync_permissions=True, category=category)
             
             # read & write able
             await general_channel.edit(overwrites=perm_member)
+        
             
         
         server = teamdb[str(ctx.guild.id)]
@@ -261,6 +285,7 @@ class CTF(commands.Cog):
     
     #### Archiving CTF Info End ####
     
+    #### /ctf join ctf_name To join CTF ####
     @commands.bot_has_permissions(manage_roles=True)
     @ctf.command()
     async def join(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
@@ -273,8 +298,9 @@ class CTF(commands.Cog):
         category = discord.utils.get(ctx.guild.categories, name=str(ctf_name))
         channel = category.channels[0]
         await channel.send(f"⚔️ {user.mention} joined in Game! ⚔️")
-
+    #### join CTF End ####
     
+    #### /ctf leave ctf To leave CTF ####
     @commands.bot_has_permissions(manage_roles=True)
     @ctf.command()
     @in_ctf_channel()
@@ -284,8 +310,11 @@ class CTF(commands.Cog):
         user = ctx.author
         await user.remove_roles(role)
         await ctx.respond(f"{user.mention} has left the {str(ctf_name)} team. 👋")
-    
+    #### leave CTF End ####
 
+    ###############################
+    #### Sub Command Challenge ####
+    ###############################
     challenge = ctf.create_subgroup("challenge", description="Challenge Utils", guild_ids=[guild_id])
     
     @staticmethod
@@ -381,35 +410,46 @@ class CTF(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     @ctf.command()
     @in_ctf_channel()
-    async def setcreds(self, ctx, username, password):
+    async def setcreds(self, ctx, 
+                       ctf_platform: discord.Option(str, description="✅ Automatic Detected Platform", autocomplete=discord.utils.basic_autocomplete(get_credential_type)), # type: ignore
+                       username: discord.Option(str, description="for `CTFd` Platform", required=False), # type: ignore
+                       password: discord.Option(str, description="for `CTFd` Platform", required=False), # type: ignore
+                       invite_code: discord.Option(str, description="for `rCTF` Platform", required=False)): # type: ignore
         # Creates a pinned message with the credntials supplied by the user
-        pinned = await ctx.message.channel.pins()
-        for pin in pinned:
-            if "CTF credentials set." in pin.content:
-                # Look for previously pinned credntials, and remove them if they exist.
-                await pin.unpin()
-        msg = await ctx.respond(f"CTF credentials set. name:{username} password:{password}")
-        await msg.pin()
-    
-    @commands.bot_has_permissions(manage_messages=True)
-    @ctf.command()
-    @in_ctf_channel()
-    async def creds(self, ctx):
-        # Send a message with the credntials
-        pinned = await ctx.message.channel.pins()
-        try:
-            user_pass = CTF.get_creds(pinned)
-            await ctx.respond(f"name:`{user_pass[0]}` password:`{user_pass[1]}`")
-        except CredentialsNotFound as cnfm:
-            await ctx.respond(cnfm)
+        category = ctx.interaction.channel.category
+        platform = ["CTFd", "rCTF"]
+        message = ""
+        link = ""
 
-    @staticmethod
-    def get_creds(pinned):
-        for pin in pinned:
-            if "CTF credentials set." in pin.content:
-                user_pass = pin.content.split("name:")[1].split(" password:")
-                return user_pass
-        raise CredentialsNotFound("Set credentials with `>ctf setcreds \"username\" \"password\"`")
+        for ctf in ctfs.find():
+            if ctf['name'] == category.name:
+                link = ctf['url']
+                break
+
+        await ctx.respond("✅ Account Info Created.")
+
+        message += f":ballot_box_with_check: CTF Platform is `{ctf_platform}`\n\n"
+
+        for channel in category.channels:
+            if 'account' in channel.name:
+                if ctf_platform == platform[0]:
+                    message += f":triangular_flag_on_post: CTF Link: {link}\n\n"
+                    message += f":unlock: Account info to Login\n\n"
+                    message += f"```ruby\n"
+                    message += f"Username: {username}\n"
+                    message += f"Password: {password}\n"
+                    message += f"```\n"
+                else:
+                    message += f":triangular_flag_on_post: CTF Link: `{link}`\n\n"
+                    message += f":unlock: Account info to Login\n\n"
+                    message += f"- *Invite Code*\n\n"
+                    message += f"> {invite_code}\n\n"
+
+                break
+
+        await channel.send(message)
+    #### Set Credit End ####
+    
 
     @staticmethod
     def gen_page(challengelist):

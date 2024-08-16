@@ -116,7 +116,7 @@ class CtfTime(commands.Cog):
             print('on_ready: ', e)
     
     @tasks.loop(time=time(hour=12, minute=46, second=0, tzinfo=KST))
-    async def makeEvent(self):
+    async def makeEvent(self, ctx):
         # Make Event Upcoming CTF
         for guild in self.bot.guilds:
             try:
