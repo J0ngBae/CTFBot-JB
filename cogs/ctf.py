@@ -6,6 +6,8 @@ import json
 import requests
 import sys
 import traceback
+import re
+import datetime
 sys.path.append("..")
 from config_vars import *
 
@@ -48,7 +50,7 @@ def getChallenges(url, username, password):
     if fingerprint not in r.text:
         raise InvalidProvider("CTF is not based on CTFd, cannot pull challenges.")
     else:
-        # Get the nonce from the login page.
+        ########### CTFd parse process
         try:
             nonce = r.text.split("csrfNonce': \"")[1].split('"')[0]
         except: # sometimes errors happen here, my theory is that it is different versions of CTFd
@@ -74,19 +76,24 @@ def getChallenges(url, username, password):
             for solve in team_solves['data']:
                 cat = solve['challenge']['category']
                 challname = solve['challenge']['name']
-                solves.append(f"<{cat}> {challname}")
-        challenges = {}
+                solves.append(f"{cat} {challname}")
+        challenges = []
+        
         if all_challenges['success'] == True:
             for chal in all_challenges['data']:
-                cat = chal['category']
-                challname = chal['name']
-                name = f"<{cat}> {challname}"
+                info = {}
+                info['id'] = chal['id']
+                info['category'] = chal['category']
+                info['name'] = chal['name']
+                name = f"{cat} {challname}"
                 # print(name)
                 # print(strip_string(name, whitelist))
                 if name not in solves:
-                    challenges.update({strip_string(name, whitelist): 'Unsolved'})
+                    info['issolve'] = 'Unsolved'
+                    challenges.append(info)
                 else:
-                    challenges.update({strip_string(name, whitelist): 'Solved'})
+                    info['issolve'] = 'Solved'
+                    challenges.append(info)
         else:
             raise Exception("Error making request")
         # Returns all the new challenges and their corresponding statuses in a dictionary compatible with the structure that would happen with 'normal' useage.
@@ -103,6 +110,11 @@ def get_ctf_platform(url: str) -> str:
     
     return platform
 
+def get_channel(text_channel, name):
+    for channel in text_channel:
+        if name in channel.name:
+            return channel
+    return None
 
 class CTF(commands.Cog):
     def __init__(self, bot):
@@ -161,6 +173,7 @@ class CTF(commands.Cog):
         notice_channel = "📢-notice"
         solved_channel = "🎉-solved"
         scoreboard_channel = "📈-scoreboard"
+        challenge_list_channel = "📋-challenge-list"
 
         category = discord.utils.get(ctx.guild.categories, name=ctf_name)
         if category == None: # Checks if category exists, if it doesn't it will create it.
@@ -190,7 +203,7 @@ class CTF(commands.Cog):
             await ctx.guild.create_text_channel(name=notice_channel, overwrites=rdonly_overwrite, category=category)
             await ctx.guild.create_text_channel(name=solved_channel, overwrites=rdonly_overwrite, category=category)
             await ctx.guild.create_text_channel(name=scoreboard_channel, overwrites=rdonly_overwrite, category=category)
-
+            await ctx.guild.create_text_channel(name=challenge_list_channel, overwrites=rdonly_overwrite, category=category)
             server = teamdb[str(ctx.guild.id)]
 
             # teamdb update {"name", "category"}
@@ -228,14 +241,14 @@ class CTF(commands.Cog):
 
     #### Delete CTF Info from DB & Disord Category & Channels End ####
     
-    # @ctf.command()
-    # async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
-    #     #user = ctx.guild.members
-    #     category = discord.utils.get(ctx.guild.categories, name=ctf_name)
+    @ctf.command()
+    async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
+        #user = ctx.guild.members
+        category = ctx.channel.category
+        ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
+        print(ctf['challenges'])
 
-    #     print(category.channels)
-
-    #     await ctx.respond("✅ Work")
+        await ctx.respond("✅ Work")
     
     #### /ctf archive ctf_name Archiving CTF Info ####
     @commands.bot_has_permissions(manage_channels=True, manage_roles=True)
@@ -377,22 +390,63 @@ class CTF(commands.Cog):
         try:
             try:
                 # Get the credentials from the pinned message
-                pinned = await ctx.message.channel.pins()
-                user_pass = CTF.get_creds(pinned)
+                category = ctx.channel.category
+                message_id = 0
+
+                for channel in category.channels:
+                    if "account" in channel.name:
+                        break
+
+                message_id = channel.last_message_id
+                message = await channel.fetch_message(message_id)
+                content = message.content
+
+                username, password = CTF.get_creds(content)
+                await ctx.respond("♻️ Pull Challenges...")
+
             except CredentialsNotFound as cnfm:
                 await ctx.respond(cnfm)
-            ctfd_challs = getChallenges(url, user_pass[0], user_pass[1])
-            ctf = teamdb[str(ctx.guild.id)].find_one({'name': str(ctx.message.channel)})
-            try: # If there are existing challenges already...
-                challenges = ctf['challenges']
-                challenges.update(ctfd_challs)
+
+            __ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
+            ctfd_challs = getChallenges(url, username, password)
+            updated = []
+            try:
+                for ctfd_chall in ctfd_challs:
+                    if ctfd_chall not in __ctf['challenges']:
+                        updated.append(ctfd_chall)
             except:
-                challenges = ctfd_challs
-            ctf_info = {'name': str(ctx.message.channel),
-            'challenges': challenges
-            }
-            teamdb[str(ctx.guild.id)].update({'name': str(ctx.message.channel)}, {"$set": ctf_info}, upsert=True)
-            await ctx.message.add_reaction("✅")
+                updated = ctfd_challs
+      
+            challenges = ctfd_challs
+            ctf_info = {'name': str(category.name), 'challenges': challenges}
+            teamdb[str(ctx.guild.id)].update({'name': str(category.name)}, {"$set": ctf_info}, upsert=True)
+
+            # Embeding
+            __ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
+            ctf = ctfs.find_one({'name': category.name})
+            ctf_icon = ctf['img'] if ctf['img'] != '' else "https://ctftime.org/favicon.png"
+
+            challenge_list_channel = get_channel(category.channels, "challenge-list")
+            print(updated)
+            for chal in updated:
+                embed = discord.Embed(
+                    title=f"🔔 {category.name}'s New Challenge!", 
+                    description="**Check Challenge Name and Category**",
+                    color=discord.Colour.gold()
+                )
+                embed.add_field(name=f"⚙️ Category | {chal['category']}", value='', inline=False)
+                embed.add_field(name=f"📛 Challenge Name", value=f"- {chal['name']}", inline=False)
+                embed.set_author(name="CTFBot-JB", icon_url=self.bot.user.avatar.url)
+                embed.set_thumbnail(url=ctf_icon)
+                embed.timestamp = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+                await challenge_list_channel.send(embed=embed)
+            
+            if updated:
+                await ctx.respond("✅ Challenge Update Success!!!")
+            else:
+                await ctx.respond("💤 No Updated Challenge.")
+            
         except InvalidProvider as ipm:
             await ctx.respond(ipm)
         except InvalidCredentials as icm:
@@ -426,7 +480,7 @@ class CTF(commands.Cog):
                 link = ctf['url']
                 break
 
-        await ctx.respond("✅ Account Info Created.")
+        await ctx.respond("✅ Credentials Info Created.")
 
         message += f":ballot_box_with_check: CTF Platform is `{ctf_platform}`\n\n"
 
@@ -450,6 +504,17 @@ class CTF(commands.Cog):
         await channel.send(message)
     #### Set Credit End ####
     
+    @staticmethod
+    def get_creds(content):
+        username_match = re.search(r'Username:\s*(\S+)', content)
+        password_match = re.search(r'Password:\s*(\S+)', content)
+
+        # 결과를 출력
+        if username_match and password_match:
+            username = username_match.group(1)
+            password = password_match.group(1)
+            return username, password
+        raise CredentialsNotFound("Set credentials /ctf setcreds")
 
     @staticmethod
     def gen_page(challengelist):
