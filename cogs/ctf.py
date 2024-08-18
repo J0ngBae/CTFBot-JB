@@ -1,6 +1,7 @@
 import discord
 from discord.ext import tasks, commands
 from discord import SlashCommandGroup
+from urllib import parse
 import string
 import json
 import requests
@@ -40,17 +41,15 @@ class CredentialsNotFound(Exception):
 class NonceNotFound(Exception):
     pass
 
-def getChallenges(url, username, password):
+def getChallenges(url, creds):
     # Pull challenges from a ctf hosted with the commonly used CTFd platform using provided credentials
     whitelist = set(string.ascii_letters+string.digits+' '+'-'+'!'+'#'+'_'+'['+']'+'('+')'+'?'+'@'+'+'+'<'+'>')
-    fingerprint = "Powered by CTFd"
+    fingerprint = ["Powered by CTFd", 'meta name="rctf-config"']
     s = requests.session()
     if url[-1] == "/": url = url[:-1]
     r = s.get(f"{url}/login")
-    if fingerprint not in r.text:
-        raise InvalidProvider("CTF is not based on CTFd, cannot pull challenges.")
-    else:
-        ########### CTFd parse process
+
+    if fingerprint[0] in r.text:
         try:
             nonce = r.text.split("csrfNonce': \"")[1].split('"')[0]
         except: # sometimes errors happen here, my theory is that it is different versions of CTFd
@@ -58,46 +57,113 @@ def getChallenges(url, username, password):
                 nonce = r.text.split("name=\"nonce\" value=\"")[1].split('">')[0]
             except:
                 raise NonceNotFound("Was not able to find the nonce token from login, please >report this along with the ctf url.")
-        # Login with the username, password, and nonce
-        r = s.post(f"{url}/login", data={"name": username, "password": password, "nonce": nonce})
-        if "Your username or password is incorrect" in r.text:
-            raise InvalidCredentials("Invalid login credentials")
-        r_chals = s.get(f"{url}/api/v1/challenges")
-        all_challenges = r_chals.json()
-        r_solves = s.get(f"{url}/api/v1/teams/me/solves")
+
+        challenges = get_ctfd_challenges(s, url, creds['username'], creds['password'], nonce)
+    elif fingerprint[1] in r.text:
+        challenges = get_rctf_challenges(s, url, creds['token'])
+    else:
+        raise InvalidProvider("CTF is not based on CTFd, cannot pull challenges.")
+    
+    return challenges
+
+def get_rctf_challenges(s, url, token):
+    heads = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer null"
+    }
+    r = s.post(f"{url}/api/v1/auth/login", json={"teamToken": token}, headers=heads)
+    if "Your token is incorrect" in r.text or "badToken" in r.text:
+        raise InvalidCredentials("Invalid login credentials")
+
+    r_json = r.json()
+    bearer_token = r_json['data']['authToken']
+
+    heads = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36",
+        "Referer": "{}/challs".format(url),
+        "Authorization": "Bearer {}".format(bearer_token)
+    }
+
+    # Get challenge information
+    r_chals = s.get(f"{url}/api/v1/challs", headers=heads)
+    all_challenges = r_chals.json()
+
+    # Get team solves
+    r_solves = s.get(f"{url}/api/v1/users/me", headers=heads)
+    team_solves = r_solves.json()
+
+    solves = []
+    if team_solves['kind'] == 'goodUserData':
+        for solve in team_solves['data']['solves']:
+            solves.append(solve['id'])
+    
+    challenges = []
+    if all_challenges['kind'] == 'goodChallenges':
+        for chal in all_challenges['data']:
+            info = {}
+            info['id'] = chal['id']
+            info['name'] = chal['name']
+            info['description'] = chal['description']
+            info['category'] = chal['category']
+            if info['id'] not in solves:
+                info['issolve'] = 'Unsolved'
+                challenges.append(info)
+            else:
+                info['issolve'] = 'Solved'
+                challenges.append(info)
+    else:
+        raise Exception("Error making request")
+    
+    return challenges
+
+def get_ctfd_challenges(s, url, username, password, nonce):
+    ########### CTFd parse process
+    # Login with the username, password, and nonce
+    r = s.post(f"{url}/login", data={"name": username, "password": password, "nonce": nonce})
+    if "Your username or password is incorrect" in r.text:
+        raise InvalidCredentials("Invalid login credentials")
+    r_chals = s.get(f"{url}/api/v1/challenges")
+    all_challenges = r_chals.json()
+    r_solves = s.get(f"{url}/api/v1/teams/me/solves")
+    team_solves = r_solves.json()
+    if 'success' not in team_solves:
+        # ctf is user based.  There is a flag on CTFd for this (userMode), but it is not present in all versions, this way seems to be.
+        r_solves = s.get(f"{url}/api/v1/users/me/solves")
         team_solves = r_solves.json()
-        if 'success' not in team_solves:
-            # ctf is user based.  There is a flag on CTFd for this (userMode), but it is not present in all versions, this way seems to be.
-            r_solves = s.get(f"{url}/api/v1/users/me/solves")
-            team_solves = r_solves.json()
-        
-        solves = []
-        if team_solves['success'] == True:
-            for solve in team_solves['data']:
-                cat = solve['challenge']['category']
-                challname = solve['challenge']['name']
-                solves.append(f"{cat} {challname}")
-        challenges = []
-        
-        if all_challenges['success'] == True:
-            for chal in all_challenges['data']:
+    
+    solves = []
+    if team_solves['success'] == True:
+        for solve in team_solves['data']:
+            cat = solve['challenge']['category']
+            challname = solve['challenge']['name']
+            solves.append(f"{cat} {challname}")
+    challenges = []
+    
+    if all_challenges['success'] == True:
+        for chal in all_challenges['data']:
+            r_info = s.get(f"{url}/api/v1/challenges/{chal['id']}")
+            chal_info = r_info.json()
+            if chal_info['success'] == True:
                 info = {}
                 info['id'] = chal['id']
                 info['category'] = chal['category']
                 info['name'] = chal['name']
+                info['description'] = parse.unquote(chal_info['data']['description'])
+                if chal_info['data']['connection_info']:
+                    connection_info = '\n\n' + chal_info['data']['connection_info']
+                    info['description'] = info['description'] + connection_info
                 name = f"{cat} {challname}"
-                # print(name)
-                # print(strip_string(name, whitelist))
-                if name not in solves:
-                    info['issolve'] = 'Unsolved'
-                    challenges.append(info)
-                else:
-                    info['issolve'] = 'Solved'
-                    challenges.append(info)
-        else:
-            raise Exception("Error making request")
-        # Returns all the new challenges and their corresponding statuses in a dictionary compatible with the structure that would happen with 'normal' useage.
-        return challenges
+
+            if name not in solves:
+                info['issolve'] = 'Unsolved'
+                challenges.append(info)
+            else:
+                info['issolve'] = 'Solved'
+                challenges.append(info)
+    else:
+        raise Exception("Error making request")
+    
+    return challenges
 
 def get_ctf_platform(url: str) -> str:
     fingerprint = ["Powered by CTFd", '<meta name="rctf-config"']
@@ -243,10 +309,7 @@ class CTF(commands.Cog):
     
     @ctf.command()
     async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
-        #user = ctx.guild.members
-        category = ctx.channel.category
-        ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
-        print(ctf['challenges'])
+        
 
         await ctx.respond("✅ Work")
     
@@ -401,30 +464,31 @@ class CTF(commands.Cog):
                 message = await channel.fetch_message(message_id)
                 content = message.content
 
-                username, password = CTF.get_creds(content)
+                creds = CTF.get_creds(content)
                 await ctx.respond("♻️ Pull Challenges...")
 
             except CredentialsNotFound as cnfm:
                 await ctx.respond(cnfm)
 
             __ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
-            ctfd_challs = getChallenges(url, username, password)
+            ctf_challs = getChallenges(url, creds)
+
             updated = []
             try:
-                for ctfd_chall in ctfd_challs:
-                    if ctfd_chall not in __ctf['challenges']:
-                        updated.append(ctfd_chall)
+                for ctf_chall in ctf_challs:
+                    if ctf_chall not in __ctf['challenges']:
+                        updated.append(ctf_chall)
             except:
-                updated = ctfd_challs
+                updated = ctf_challs
       
-            challenges = ctfd_challs
+            challenges = ctf_challs
             ctf_info = {'name': str(category.name), 'challenges': challenges}
             teamdb[str(ctx.guild.id)].update({'name': str(category.name)}, {"$set": ctf_info}, upsert=True)
 
             # Embeding
             __ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
             ctf = ctfs.find_one({'name': category.name})
-            ctf_icon = ctf['img'] if ctf['img'] != '' else "https://ctftime.org/favicon.png"
+            ctf_icon = ctf['img'] if ctf['img'] != '' else "https://pbs.twimg.com/profile_images/2189766987/ctftime-logo-avatar_400x400.png"
 
             challenge_list_channel = get_channel(category.channels, "challenge-list")
             print(updated)
@@ -474,6 +538,7 @@ class CTF(commands.Cog):
         platform = ["CTFd", "rCTF"]
         message = ""
         link = ""
+        token = ""
 
         for ctf in ctfs.find():
             if ctf['name'] == category.name:
@@ -481,6 +546,12 @@ class CTF(commands.Cog):
                 break
 
         await ctx.respond("✅ Credentials Info Created.")
+
+        if invite_code != None:
+            token_match = re.search(r'login\?token=(\S+)', invite_code)
+            token = token_match.group(1)
+            token = parse.unquote(token)
+
 
         message += f":ballot_box_with_check: CTF Platform is `{ctf_platform}`\n\n"
 
@@ -498,7 +569,7 @@ class CTF(commands.Cog):
                     message += f":unlock: Account info to Login\n\n"
                     message += f"- *Invite Code*\n\n"
                     message += f"> {invite_code}\n\n"
-
+                    message += f"```ini\nTeam Token: {token}```"
                 break
 
         await channel.send(message)
@@ -506,15 +577,23 @@ class CTF(commands.Cog):
     
     @staticmethod
     def get_creds(content):
+        creds = {'username': None, 'password': None, 'token': None}
         username_match = re.search(r'Username:\s*(\S+)', content)
         password_match = re.search(r'Password:\s*(\S+)', content)
+        token_match = re.search(r'Team Token:\s*(\S+)', content)
 
         # 결과를 출력
         if username_match and password_match:
-            username = username_match.group(1)
-            password = password_match.group(1)
-            return username, password
-        raise CredentialsNotFound("Set credentials /ctf setcreds")
+            creds['username'] = username_match.group(1)
+            creds['password'] = password_match.group(1)
+            return creds
+        elif token_match:
+            creds['token'] = token_match.group(1)
+            return creds
+        else:
+            raise CredentialsNotFound("Set credentials /ctf setcreds")
+        
+        
 
     @staticmethod
     def gen_page(challengelist):
