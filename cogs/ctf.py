@@ -491,8 +491,28 @@ class CTF(commands.Cog):
             ctf_icon = ctf['img'] if ctf['img'] != '' else "https://pbs.twimg.com/profile_images/2189766987/ctftime-logo-avatar_400x400.png"
 
             challenge_list_channel = get_channel(category.channels, "challenge-list")
-            print(updated)
+            print(category.channels)
+            
+            ctf_user = discord.utils.get(ctx.guild.roles, name=category.name)
+            everyone = discord.utils.get(ctx.guild.roles, name="@everyone")
+            overwrites = {
+                ctf_user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_messages=True),
+                everyone: discord.PermissionOverwrite(view_channel=False, send_messages=False, read_messages=False)
+            }
+
             for chal in updated:
+                challenge_channel = get_channel(category.channels, chal['category'])
+                if not challenge_channel:
+                    thread = await ctx.guild.create_text_channel(name=f"💎-{chal['category']}", overwrites=overwrites, category=category)
+                else:
+                    thread = challenge_channel
+                embed_th = discord.Embed(
+                    title=f"{chal['category']} - {chal['name']}",
+                    description=f"{chal['description']}"
+                )
+
+                await thread.create_thread(name=f"🔄-{chal['name']}", type=discord.ChannelType.private_thread)
+
                 embed = discord.Embed(
                     title=f"🔔 {category.name}'s New Challenge!", 
                     description="**Check Challenge Name and Category**",
