@@ -182,6 +182,12 @@ def get_channel(text_channel, name):
             return channel
     return None
 
+def get_thread(threads, name):
+    for thread in threads:
+        if name in thread.name:
+            return thread
+    return None
+
 class CTF(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -224,6 +230,20 @@ class CTF(commands.Cog):
         platform = get_ctf_platform(url)
 
         return [platform]
+    
+    def get_challenge_ac(ctx: discord.AutocompleteContext):
+        challenge = ctx.options['challenge']
+        ctf_name = ctx.interaction.channel.category.name
+        guild_table = teamdb[str(ctx.interaction.guild_id)].find_one({'name': ctf_name})
+        challenges = guild_table['challenges']
+        unsolved_challenge = []
+
+        for challenge in challenges:
+            if challenge['issolve'] != 'Solved':
+                name = f"{challenge['name']} ({challenge['category']})"
+                unsolved_challenge.append(name)
+        
+        return unsolved_challenge
 
 
     #### /ctf create ctf_name : Create CTF Category & Channels ####
@@ -388,6 +408,27 @@ class CTF(commands.Cog):
         await ctx.respond(f"{user.mention} has left the {str(ctf_name)} team. 👋")
     #### leave CTF End ####
 
+    @commands.bot_has_permissions(manage_threads=True)
+    @ctf.command()
+    @in_ctf_channel()
+    async def workon(self, ctx, challenge=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_challenge_ac))):
+        match = re.match(r'^(.*?)\s*\((.*?)\)\s*(.*)$', challenge)
+
+        category = ctx.channel.category
+        if match:
+            name = match.group(1)
+            chal_cat = match.group(2)
+            channel = get_channel(category.channels, chal_cat)
+            thread = get_thread(channel.threads, name)
+            if not channel and not thread:
+                ctx.respond(f"❌ Challenge Not Found")
+            await ctx.respond(f"✅ {ctx.user.mention} Work on Successfully")
+            await thread.add_user(ctx.user)
+            await thread.send(f"🪓 {ctx.user.mention} joined in `{thread.name}`")
+        else:
+            ctx.respond(f"❌ Invalid Challenge......")
+        
+
     ###############################
     #### Sub Command Challenge ####
     ###############################
@@ -446,7 +487,7 @@ class CTF(commands.Cog):
         teamdb[str(ctx.guild.id)].update({'name': str(ctx.message.channel)}, {"$set": ctf_info}, upsert=True)
         await ctx.respond(f"Removed `{name}`")
     
-    @challenge.command(aliases=['get', 'ctfd'])
+    @challenge.command()
     @in_ctf_channel()
     async def pull(self, ctx, url):
         # Pull challenges from a ctf hosted on the CTFd platform
@@ -511,7 +552,8 @@ class CTF(commands.Cog):
                     description=f"{chal['description']}"
                 )
 
-                await thread.create_thread(name=f"🔄-{chal['name']}", type=discord.ChannelType.private_thread)
+                chal_thread = await thread.create_thread(name=f"🔄-{chal['name']}", type=discord.ChannelType.private_thread)
+                await chal_thread.send(embed=embed_th)
 
                 embed = discord.Embed(
                     title=f"🔔 {category.name}'s New Challenge!", 
