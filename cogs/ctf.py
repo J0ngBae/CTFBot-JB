@@ -13,7 +13,10 @@ sys.path.append("..")
 from config_vars import *
 
 class WorkOnView(discord.ui.View):
-    @discord.ui.button(label="Work on this Challenge!", style=discord.ButtonStyle.success, emoji="🛠️")
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Work on this Challenge!", custom_id="workOnBtn", style=discord.ButtonStyle.success, emoji="🛠️")
     async def button_callback(self, button, interaction):
         category = interaction.channel.category
         user = interaction.user
@@ -24,24 +27,26 @@ class WorkOnView(discord.ui.View):
         chal_cat = embed.fields[0].value
         chal_name = embed.fields[1].value
 
-        print(chal_cat)
-        print(chal_name)
-
         channel = get_channel(category.channels, chal_cat)
         thread = get_thread(channel.threads, chal_name)
         if channel and thread:
             await thread.add_user(user)
             await thread.send(f"🪓 {user.mention} joined in `{thread.name}`")
-            await interaction.response.send_message("✅ Work on Success!", ephemeral=True)
+
+            await interaction.respond("✅ Work on Success!", ephemeral=True)
         else:
             await interaction.respond(f"❌ Challenge Thread Not Found")
 
 class TestView(discord.ui.View):
-    @discord.ui.button(label="Work on!", style=discord.ButtonStyle.success, emoji="🛠️")
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Work on!", custom_id="button-1", style=discord.ButtonStyle.success, emoji="🛠️")
     async def button_callback(self, button, interaction):
         user = interaction.user
-        category = interaction.channel.category
-        print(self)        
+
+        print(self)
+        print(interaction)
 
         await interaction.response.send_message("Work!", ephemeral=True)
 
@@ -370,11 +375,17 @@ class CTF(commands.Cog):
         await category.delete()
 
     #### Delete CTF Info from DB & Disord Category & Channels End ####
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        self.bot.add_view(TestView())
+        self.bot.add_view(WorkOnView())
+
     
     @ctf.command()
     async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
         #print(ctx.response.data)
-        '''
+        
         embed = discord.Embed(
             title=f"🔔 idek's New Challenge!", 
             description="**Check Challenge Name and Category**",
@@ -383,11 +394,9 @@ class CTF(commands.Cog):
         embed.add_field(name=f"⚙️ Category", value='pwn', inline=True)
         embed.add_field(name=f"📛 Challenge Name", value=f"Write me", inline=True)
 
-        await ctx.channel.send(embed=embed, view=TestView())
-        '''
-        print(ctx.interaction.channel.name)
-
-        await ctx.respond("✅ Work")
+        await ctx.channel.send(f"Press the button! View persistence status: {TestView.is_persistent(TestView())}", view=TestView())
+        # await interaction.response.send_message("✅ Work on Success!", ephemeral=True)
+        await ctx.respond("✅ Work", ephemeral=True)
     
     #### /ctf archive ctf_name Archiving CTF Info ####
     @commands.bot_has_permissions(manage_channels=True, manage_roles=True)
@@ -514,7 +523,7 @@ class CTF(commands.Cog):
         # Pull challenges from a ctf hosted on the CTFd platform
         try:
             try:
-                # Get the credentials from the pinned message
+                # Get the credentials from account channel
                 category = ctx.channel.category
                 message_id = 0
 
@@ -533,27 +542,30 @@ class CTF(commands.Cog):
                 await ctx.respond(cnfm)
 
             __ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
+
+            # get challenges from ctf site
             ctf_challs = getChallenges(url, creds)
 
+            # get Updated Challenge
             updated = []
             try:
                 for ctf_chall in ctf_challs:
                     if ctf_chall not in __ctf['challenges']:
                         updated.append(ctf_chall)
             except:
-                updated = ctf_challs
-      
+                updated = ctf_challs  # First pull challenge
+            
+            # update db 
             challenges = ctf_challs
             ctf_info = {'name': str(category.name), 'challenges': challenges}
             teamdb[str(ctx.guild.id)].update({'name': str(category.name)}, {"$set": ctf_info}, upsert=True)
 
-            # Embeding
+            # Embed source and permission setting
             __ctf = teamdb[str(ctx.guild.id)].find_one({'name': category.name})
             ctf = ctfs.find_one({'name': category.name})
             ctf_icon = ctf['img'] if ctf['img'] != '' else "https://pbs.twimg.com/profile_images/2189766987/ctftime-logo-avatar_400x400.png"
 
             challenge_list_channel = get_channel(category.channels, "challenge-list")
-            print(category.channels)
             
             ctf_user = discord.utils.get(ctx.guild.roles, name=category.name)
             everyone = discord.utils.get(ctx.guild.roles, name="@everyone")
@@ -562,23 +574,29 @@ class CTF(commands.Cog):
                 everyone: discord.PermissionOverwrite(view_channel=False, send_messages=False, read_messages=False)
             }
 
+            # create channel by challenge category
             for chal in updated:
-                #category = ctx.channel.category
                 challenge_channel = get_channel(category.channels, chal['category'])
                 if not challenge_channel:
-                    #print(challenge_channel)
                     thread = await ctx.guild.create_text_channel(name=f"💎-{chal['category']}", overwrites=overwrites, category=category)
                 else:
                     thread = challenge_channel
 
+                if chal['issolve'] == "Solved":
+                    chal_thread = await thread.create_thread(name=f"✅-{chal['name']}", type=discord.ChannelType.private_thread)
+                else:
+                    chal_thread = await thread.create_thread(name=f"🔄-{chal['name']}", type=discord.ChannelType.private_thread)
+                
+                # send Embed in thread
                 embed_th = discord.Embed(
                     title=f"{chal['category']} - {chal['name']}",
                     description=f"{chal['description']}"
                 )
 
-                chal_thread = await thread.create_thread(name=f"🔄-{chal['name']}", type=discord.ChannelType.private_thread)
                 await chal_thread.send(embed=embed_th)
 
+
+                # send Embed in challenge-list
                 embed = discord.Embed(
                     title=f"🔔 {category.name}'s New Challenge!", 
                     description="**Check Challenge Name and Category**",
@@ -590,7 +608,7 @@ class CTF(commands.Cog):
                 embed.set_thumbnail(url=ctf_icon)
                 embed.timestamp = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
 
-                await challenge_list_channel.send(embed=embed)
+                await challenge_list_channel.send(embed=embed, view=WorkOnView())
             
             if updated:
                 await ctx.respond("✅ Challenge Update Success!!!")
@@ -701,27 +719,6 @@ class CTF(commands.Cog):
 
         # print(challenge_pages)
         return challenge_pages
-
-    @challenge.command()
-    @in_ctf_channel()
-    async def list(self, ctx):
-        # list the challenges in the current ctf.
-        ctf_challenge_list = []
-        server = teamdb[str(ctx.guild.id)]
-        ctf = server.find_one({'name': str(ctx.message.channel)})
-        try:
-            ctf_challenge_list = []
-            for k, v in ctf['challenges'].items():
-                challenge = f"[{k}]: {v}\n"
-                ctf_challenge_list.append(challenge)
-            
-            for page in CTF.gen_page(ctf_challenge_list):
-                await ctx.respond(f"```ini\n{page}```")
-                # ```ini``` makes things in '[]' blue which looks nice :)
-        except KeyError as e: # If nothing has been added to the challenges list
-            await ctx.respond("Add some challenges with `/ctf challenge add \"challenge name\"`")
-        except:
-            traceback.print_exc()
 
 def setup(bot):
     bot.add_cog(CTF(bot))
