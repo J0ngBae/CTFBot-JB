@@ -12,6 +12,39 @@ import datetime
 sys.path.append("..")
 from config_vars import *
 
+class WorkOnView(discord.ui.View):
+    @discord.ui.button(label="Work on this Challenge!", style=discord.ButtonStyle.success, emoji="🛠️")
+    async def button_callback(self, button, interaction):
+        category = interaction.channel.category
+        user = interaction.user
+        message_id = interaction.message.id
+        message = await interaction.channel.fetch_message(message_id)
+        embed = message.embeds[0]
+
+        chal_cat = embed.fields[0].value
+        chal_name = embed.fields[1].value
+
+        print(chal_cat)
+        print(chal_name)
+
+        channel = get_channel(category.channels, chal_cat)
+        thread = get_thread(channel.threads, chal_name)
+        if channel and thread:
+            await thread.add_user(user)
+            await thread.send(f"🪓 {user.mention} joined in `{thread.name}`")
+            await interaction.response.send_message("✅ Work on Success!", ephemeral=True)
+        else:
+            await interaction.respond(f"❌ Challenge Thread Not Found")
+
+class TestView(discord.ui.View):
+    @discord.ui.button(label="Work on!", style=discord.ButtonStyle.success, emoji="🛠️")
+    async def button_callback(self, button, interaction):
+        user = interaction.user
+        category = interaction.channel.category
+        print(self)        
+
+        await interaction.response.send_message("Work!", ephemeral=True)
+
 # All commands relating to server specific CTF data
 # Credentials provided for pulling challenges from the CTFd platform are NOT stored in the database.
     # they are stored in a pinned message in the discord channel.
@@ -152,8 +185,9 @@ def get_ctfd_challenges(s, url, username, password, nonce):
                 if chal_info['data']['connection_info']:
                     connection_info = '\n\n' + chal_info['data']['connection_info']
                     info['description'] = info['description'] + connection_info
-                name = f"{cat} {challname}"
+                name = f"{info['category']} {info['name']}"
 
+            print(info)
             if name not in solves:
                 info['issolve'] = 'Unsolved'
                 challenges.append(info)
@@ -177,6 +211,9 @@ def get_ctf_platform(url: str) -> str:
     return platform
 
 def get_channel(text_channel, name):
+    if ' ' in name:
+        name = name.replace(' ', '-')
+    name = name.lower()
     for channel in text_channel:
         if name in channel.name:
             return channel
@@ -230,6 +267,13 @@ class CTF(commands.Cog):
         platform = get_ctf_platform(url)
 
         return [platform]
+    
+    def get_ctfurl_ac(ctx: discord.AutocompleteContext):
+        url = ctx.options['url']
+        ctf_name = ctx.interaction.channel.category.name
+        ctf = ctfs.find_one({'name': ctf_name})
+
+        return [ctf['url']]
     
     def get_challenge_ac(ctx: discord.AutocompleteContext):
         challenge = ctx.options['challenge']
@@ -329,7 +373,19 @@ class CTF(commands.Cog):
     
     @ctf.command()
     async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
-        
+        #print(ctx.response.data)
+        '''
+        embed = discord.Embed(
+            title=f"🔔 idek's New Challenge!", 
+            description="**Check Challenge Name and Category**",
+            color=discord.Colour.gold()
+        )
+        embed.add_field(name=f"⚙️ Category", value='pwn', inline=True)
+        embed.add_field(name=f"📛 Challenge Name", value=f"Write me", inline=True)
+
+        await ctx.channel.send(embed=embed, view=TestView())
+        '''
+        print(ctx.interaction.channel.name)
 
         await ctx.respond("✅ Work")
     
@@ -340,7 +396,7 @@ class CTF(commands.Cog):
     @in_ctf_channel()
     async def archive(self, ctx, ctf_name: discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))): # type: ignore
         # Delete the role, and move the ctf channel to either the default category (Archive) or whatever has been configured.
-        ctf_user = discord.utils.get(ctx.guild.roles, name="@everyone")
+        everyone = discord.utils.get(ctx.guild.roles, name="@everyone")
         perm_member_rd = {}
         perm_member = {}
         category = discord.utils.get(ctx.guild.categories, name=ctf_name)
@@ -349,11 +405,11 @@ class CTF(commands.Cog):
 
         # Can read only joined user
         for member in members:
-            perm_member_rd[member] = discord.PermissionOverwrite(view_channel=True, send_messages=False, read_messages=True)
-            perm_member[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_messages=True)
+            perm_member_rd[member] = discord.PermissionOverwrite(view_channel=True, send_messages=False, read_messages=True, manage_threads=True, send_messages_in_threads=False)
+            perm_member[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_messages=True, manage_threads=True, send_messages_in_threads=False)
         
-        perm_member_rd[ctf_user] = discord.PermissionOverwrite(view_channel=False, send_messages=False, read_messages=False)
-        perm_member[ctf_user] = discord.PermissionOverwrite(view_channel=False, send_messages=False, read_messages=False)
+        perm_member_rd[everyone] = discord.PermissionOverwrite(view_channel=False, send_messages=False, read_messages=False, manage_threads=False, send_messages_in_threads=False)
+        perm_member[everyone] = discord.PermissionOverwrite(view_channel=False, send_messages=False, read_messages=False, manage_threads=False, send_messages_in_threads=False)
 
         role = discord.utils.get(ctx.guild.roles, name=str(ctf_name))
         await role.delete()
@@ -372,8 +428,6 @@ class CTF(commands.Cog):
             
             # read & write able
             await general_channel.edit(overwrites=perm_member)
-        
-            
         
         server = teamdb[str(ctx.guild.id)]
         ctf_info = {'name': lock_ctf, "category": lock_ctf}
@@ -420,76 +474,43 @@ class CTF(commands.Cog):
             chal_cat = match.group(2)
             channel = get_channel(category.channels, chal_cat)
             thread = get_thread(channel.threads, name)
-            if not channel and not thread:
-                ctx.respond(f"❌ Challenge Not Found")
-            await ctx.respond(f"✅ {ctx.user.mention} Work on Successfully")
-            await thread.add_user(ctx.user)
-            await thread.send(f"🪓 {ctx.user.mention} joined in `{thread.name}`")
+            if channel and thread:
+                await ctx.respond(f"✅ {ctx.user.mention} Work on Successfully")
+                await thread.add_user(ctx.user)
+                await thread.send(f"🪓 {ctx.user.mention} joined in `{thread.name}`")
+            else:
+                await ctx.respond(f"❌ Challenge Thread Not Found")
         else:
-            ctx.respond(f"❌ Invalid Challenge......")
-        
+            await ctx.respond(f"❌ Invalid Challenge......")
+    
+    @ctf.command()
+    @in_ctf_channel()
+    async def solve(self, ctx):
+        if "🔄" in ctx.interaction.channel.name:
+            ctf_name = ctx.interaction.channel.category.name
+            chal_name = ctx.interaction.channel.name[2:]
+            ctf_table = teamdb[str(ctx.guild.id)].find_one({'name': ctf_name})
+            challenges = ctf_table['challenges']
+            for challenge in ctf_table['challenges']:
+                if challenge['name'] == chal_name:
+                    challenge['issolve'] = 'Solved'
+                    await ctx.respond(f"🎉 Congratulation!! Solved `{chal_name}`")
+                    await ctx.interaction.channel.edit(name=f"✅-{chal_name}")
+                    break
+            
+            ctf_info = {'name': str(ctx.interaction.channel.category.name), 'challenges': challenges}
+            teamdb[str(ctx.guild.id)].update({'name': str(ctx.interaction.channel.category.name)}, {"$set": ctf_info}, upsert=True)
+        else:
+            await ctx.respond("❌ Already Solved Challenge.")
 
     ###############################
     #### Sub Command Challenge ####
     ###############################
     challenge = ctf.create_subgroup("challenge", description="Challenge Utils", guild_ids=[guild_id])
     
-    @staticmethod
-    def updateChallenge(ctx, name, status):
-        # Update the db with a new challenge and its status
-        server = teamdb[str(ctx.guild.id)]
-        whitelist = set(string.ascii_letters+string.digits+' '+'-'+'!'+'#'+'_'+'['+']'+'('+')'+'?'+'@'+'+'+'<'+'>')
-        challenge = {strip_string(str(name), whitelist): status}
-        ctf = server.find_one({'name': str(ctx.message.channel)})
-        try: # If there are existing challenges already...
-            challenges = ctf['challenges']
-            challenges.update(challenge)
-        except:
-            challenges = challenge
-        ctf_info = {'name': str(ctx.message.channel),
-        'challenges': challenges
-        }
-        server.update({'name': str(ctx.message.channel)}, {"$set": ctf_info}, upsert=True)
-
-    
     @challenge.command()
     @in_ctf_channel()
-    async def add(self, ctx, name):
-        CTF.updateChallenge(ctx, name, 'Unsolved')
-        await ctx.respond(f"`{name}` has been added to the challenge list for `{str(ctx.message.channel)}`")
-    
-    @challenge.command()
-    @in_ctf_channel()
-    async def solved(self, ctx, name):
-        solve = f"Solved - {str(ctx.message.author)}"
-        CTF.updateChallenge(ctx, name, solve)
-        await ctx.respond(f":triangular_flag_on_post: `{name}` has been solved by `{str(ctx.message.author)}`")
-    
-    @challenge.command()
-    @in_ctf_channel()
-    async def working(self, ctx, name):
-        work = f"Working - {str(ctx.message.author)}"
-        CTF.updateChallenge(ctx, name, work)
-        await ctx.respond(f"`{str(ctx.message.author)}` is working on `{name}`!")
-    
-    @challenge.command(aliases=['r', 'delete', 'd'])
-    @in_ctf_channel()
-    async def remove(self, ctx, name):
-        # Typos can happen (remove a ctf challenge from the list)
-        ctf = teamdb[str(ctx.guild.id)].find_one({'name': str(ctx.message.channel)})
-        challenges = ctf['challenges']
-        whitelist = set(string.ascii_letters+string.digits+' '+'-'+'!'+'#'+'_'+'['+']'+'('+')'+'?'+'@'+'+'+'<'+'>')
-        name = strip_string(name, whitelist)
-        challenges.pop(name, None)
-        ctf_info = {'name': str(ctx.message.channel),
-        'challenges': challenges
-        }
-        teamdb[str(ctx.guild.id)].update({'name': str(ctx.message.channel)}, {"$set": ctf_info}, upsert=True)
-        await ctx.respond(f"Removed `{name}`")
-    
-    @challenge.command()
-    @in_ctf_channel()
-    async def pull(self, ctx, url):
+    async def pull(self, ctx, url=discord.Option(str, description="CTF main page url", autocomplete=discord.utils.basic_autocomplete(get_ctfurl_ac))):
         # Pull challenges from a ctf hosted on the CTFd platform
         try:
             try:
@@ -542,11 +563,14 @@ class CTF(commands.Cog):
             }
 
             for chal in updated:
+                #category = ctx.channel.category
                 challenge_channel = get_channel(category.channels, chal['category'])
                 if not challenge_channel:
+                    #print(challenge_channel)
                     thread = await ctx.guild.create_text_channel(name=f"💎-{chal['category']}", overwrites=overwrites, category=category)
                 else:
                     thread = challenge_channel
+
                 embed_th = discord.Embed(
                     title=f"{chal['category']} - {chal['name']}",
                     description=f"{chal['description']}"
@@ -558,10 +582,10 @@ class CTF(commands.Cog):
                 embed = discord.Embed(
                     title=f"🔔 {category.name}'s New Challenge!", 
                     description="**Check Challenge Name and Category**",
-                    color=discord.Colour.gold()
+                    color=discord.Colour.brand_green()
                 )
-                embed.add_field(name=f"⚙️ Category | {chal['category']}", value='', inline=False)
-                embed.add_field(name=f"📛 Challenge Name", value=f"- {chal['name']}", inline=False)
+                embed.add_field(name=f"⚙️ Category", value=f"{chal['category']}", inline=True)
+                embed.add_field(name=f"📛 Challenge Name", value=f"{chal['name']}", inline=True)
                 embed.set_author(name="CTFBot-JB", icon_url=self.bot.user.avatar.url)
                 embed.set_thumbnail(url=ctf_icon)
                 embed.timestamp = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
