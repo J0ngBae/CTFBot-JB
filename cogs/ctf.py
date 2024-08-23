@@ -384,18 +384,10 @@ class CTF(commands.Cog):
     
     @ctf.command()
     async def test(self, ctx, ctf_name=discord.Option(str, autocomplete=discord.utils.basic_autocomplete(get_ctf_category))):
-        #print(ctx.response.data)
-        
-        embed = discord.Embed(
-            title=f"🔔 idek's New Challenge!", 
-            description="**Check Challenge Name and Category**",
-            color=discord.Colour.gold()
-        )
-        embed.add_field(name=f"⚙️ Category", value='pwn', inline=True)
-        embed.add_field(name=f"📛 Challenge Name", value=f"Write me", inline=True)
-
-        await ctx.channel.send(f"Press the button! View persistence status: {TestView.is_persistent(TestView())}", view=TestView())
-        # await interaction.response.send_message("✅ Work on Success!", ephemeral=True)
+        guild = self.bot.get_guild(guild_id)
+        events = guild.scheduled_events
+        for i in events:
+            print(i.name)
         await ctx.respond("✅ Work", ephemeral=True)
     
     #### /ctf archive ctf_name Archiving CTF Info ####

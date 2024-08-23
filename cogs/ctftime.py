@@ -118,31 +118,31 @@ class CtfTime(commands.Cog):
     @tasks.loop(time=time(hour=6, minute=0, second=0, tzinfo=KST))
     async def makeEvent(self):
         # Make Event Upcoming CTF
-        for guild in self.bot.guilds:
-            try:
-                events = guild.scheduled_events
+        try:
+            guild = self.bot.get_guild(guild_id)
+            events = [event.name for event in guild.scheduled_events]
 
-                for ctf in ctfs.find():
-                    if ctf['name'] not in events:
-                        name = ctf['name']
-                        start_time = datetime.fromtimestamp(ctf['start'], KST)
-                        end_time = datetime.fromtimestamp(ctf['end'], KST)
-                        location = ctf['url']
-                        ctf_format = ctf['format']
-                        organizers = ctf['organizers']
-                        weight = ctf['weight']
-                        ctftime_link = ctf['ctftime']
+            for ctf in ctfs.find():
+                if ctf['name'] not in events:
+                    name = ctf['name']
+                    start_time = datetime.fromtimestamp(ctf['start'], KST)
+                    end_time = datetime.fromtimestamp(ctf['end'], KST)
+                    location = ctf['url']
+                    ctf_format = ctf['format']
+                    organizers = ctf['organizers']
+                    weight = ctf['weight']
+                    ctftime_link = ctf['ctftime']
 
-                        description = ctfPrint(organizers, ctf_format, weight, ctftime_link)
+                    description = ctfPrint(organizers, ctf_format, weight, ctftime_link)
 
-                        privacy = discord.ScheduledEventPrivacyLevel.guild_only
+                    privacy = discord.ScheduledEventPrivacyLevel.guild_only
 
-                        await guild.create_scheduled_event(name=name, description=description,
-                                                        start_time=start_time, end_time=end_time,
-                                                        privacy_level=privacy, location=location)
+                    await guild.create_scheduled_event(name=name, description=description,
+                                                    start_time=start_time, end_time=end_time,
+                                                    privacy_level=privacy, location=location)
 
-            except Exception as e:
-                print('scheduled: ', e)
+        except Exception as e:
+            print('scheduled: ', e)
     
     ctftime = SlashCommandGroup("ctftime", description="ctftime command", guild_ids=[guild_id,])
 
