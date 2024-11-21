@@ -58,7 +58,7 @@ class CtfTime(commands.Cog):
         
         info = []
         for num, i in enumerate(jdata): # Generate list of dicts of upcoming ctfs
-            ctf_title = jdata[num]['title']
+            ctf_title = jdata[num]['title'].strip()
             (ctf_start, ctf_end) = (parse(jdata[num]['start'].replace('T', ' ').split('+', 1)[0]), parse(jdata[num]['finish'].replace('T', ' ').split('+', 1)[0]))
             (unix_start, unix_end) = (int(ctf_start.replace(tzinfo=timezone.utc).timestamp()), int(ctf_end.replace(tzinfo=timezone.utc).timestamp()))
             dur_dict = jdata[num]['duration']
@@ -119,7 +119,8 @@ class CtfTime(commands.Cog):
     async def makeEvent(self):
         # Make Event Upcoming CTF
         try:
-            guild = self.bot.get_guild(guild_id)
+            guild = await self.bot.fetch_guild(guild_id)
+            print(guild)
             events = [event.name for event in guild.scheduled_events]
 
             for ctf in ctfs.find():
@@ -138,8 +139,8 @@ class CtfTime(commands.Cog):
                     privacy = discord.ScheduledEventPrivacyLevel.guild_only
 
                     await guild.create_scheduled_event(name=name, description=description,
-                                                    start_time=start_time, end_time=end_time,
-                                                    privacy_level=privacy, location=location)
+                                                start_time=start_time, end_time=end_time,
+                                                privacy_level=privacy, location=location)
 
         except Exception as e:
             print('scheduled: ', e)
