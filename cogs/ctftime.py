@@ -122,9 +122,11 @@ class CtfTime(commands.Cog):
             guild = await self.bot.fetch_guild(guild_id)
             print(guild)
             events = [event.name for event in guild.scheduled_events]
+            now = datetime.now()
+            unix_now = int(now.replace(tzinfo=timezone.utc).timestamp())
 
             for ctf in ctfs.find():
-                if ctf['name'] not in events:
+                if ctf['name'] not in events and ctf['start'] < unix_now:
                     name = ctf['name']
                     start_time = datetime.fromtimestamp(ctf['start'], KST)
                     end_time = datetime.fromtimestamp(ctf['end'], KST)
