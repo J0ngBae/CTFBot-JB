@@ -4,6 +4,7 @@ import os, sys
 
 intents = discord.Intents.all()
 bot = discord.Bot(intents=intents,)
+extensions = ['ping', 'ctftime', 'ctf', 'help',]
 
 @bot.event
 async def on_ready():
@@ -13,7 +14,6 @@ async def on_ready():
 
     await bot.change_presence(activity=discord.Game(name="/help"))
 
-extensions = ['ping', 'ctftime', 'ctf', 'help',]
 
 if __name__ == '__main__':
     sys.path.insert(1, os.getcwd() + '/cogs/')

@@ -12,5 +12,6 @@ COPY config_vars.py .
 COPY requirements.txt .
 
 RUN pip install -r requirements.txt
+RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
 
 CMD ["python", "nullctf.py"]
