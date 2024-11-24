@@ -126,7 +126,7 @@ class CtfTime(commands.Cog):
             unix_now = int(now.replace(tzinfo=timezone.utc).timestamp())
 
             for ctf in ctfs.find():
-                if ctf['name'] not in events and ctf['start'] < unix_now:
+                if ctf['name'] not in events and unix_now < ctf['start']:
                     name = ctf['name']
                     start_time = datetime.fromtimestamp(ctf['start'], KST)
                     end_time = datetime.fromtimestamp(ctf['end'], KST)
