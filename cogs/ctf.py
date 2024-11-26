@@ -487,22 +487,27 @@ class CTF(commands.Cog):
     @ctf.command()
     @in_ctf_channel()
     async def solve(self, ctx):
-        if "🔄" in ctx.interaction.channel.name:
-            ctf_name = ctx.interaction.channel.category.name
-            chal_name = ctx.interaction.channel.name[2:]
-            ctf_table = teamdb[str(ctx.guild.id)].find_one({'name': ctf_name})
-            challenges = ctf_table['challenges']
-            for challenge in ctf_table['challenges']:
-                if challenge['name'] == chal_name:
-                    challenge['issolve'] = 'Solved'
-                    await ctx.respond(f"🎉 Congratulation!! Solved `{chal_name}`")
-                    await ctx.interaction.channel.edit(name=f"✅-{chal_name}")
-                    break
-            
-            ctf_info = {'name': str(ctx.interaction.channel.category.name), 'challenges': challenges}
-            teamdb[str(ctx.guild.id)].update({'name': str(ctx.interaction.channel.category.name)}, {"$set": ctf_info}, upsert=True)
+        cur_channel = ctx.interaction.channel
+        ctf_name = cur_channel.category.name
+        chal_name = cur_channel.name[2:]
+        challenge = teamdb[str(ctx.guild.id)].find_one({'name': ctf_name}, {'challenges': {'$elemMatch': {'name': chal_name}}})
+        solved_channel = get_channel(cur_channel.category.channels, "solved")
+
+        is_solve = challenge['challenges'][0]['issolve']
+        chal_cat = challenge['challenges'][0]['category']
+        if is_solve == 'Unsolved':
+            teamdb[str(ctx.guild.id)].update_one(
+                {'name': ctf_name},
+                {"$set": {'challenges.$[elem].issolve': 'Solved'}},
+                upsert=True,
+                array_filters=[ {'elem.name': chal_name} ]
+            )
+            await ctx.respond(f"🎉 Congratulation!! Solved `{chal_name}`")
+            await ctx.interaction.channel.edit(name=f"✅-{chal_name}")
+            await solved_channel.send(f"🎉 **{ctx.user.mention}** solved **`{chal_name}`** from `{chal_cat}`")
         else:
             await ctx.respond("❌ Already Solved Challenge.")
+            
 
     ###############################
     #### Sub Command Challenge ####
