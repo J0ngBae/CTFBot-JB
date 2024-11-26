@@ -115,12 +115,11 @@ class CtfTime(commands.Cog):
         except Exception as e:
             print('on_ready: ', e)
     
-    @tasks.loop(time=time(hour=6, minute=0, second=0, tzinfo=KST))
+    @tasks.loop(time=time(hour=15, minute=37, second=0, tzinfo=KST))
     async def makeEvent(self):
         # Make Event Upcoming CTF
         try:
-            guild = await self.bot.fetch_guild(guild_id)
-            print(guild)
+            guild = self.bot.get_guild(guild_id)
             events = [event.name for event in guild.scheduled_events]
             now = datetime.now()
             unix_now = int(now.replace(tzinfo=timezone.utc).timestamp())
